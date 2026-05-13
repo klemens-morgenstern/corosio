@@ -16,3 +16,5 @@ add_subdirectory(reconnect)
 if(WolfSSL_FOUND)
     add_subdirectory(https-client)
 endif()
+
+add_subdirectory(beast)
