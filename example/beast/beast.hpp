@@ -7,7 +7,6 @@
 // Official repository: https://github.com/cppalliance/corosio
 //
 
-#include "boost/capy/buffers/buffer_array.hpp"
 #include "boost/capy/io/any_read_stream.hpp"
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/asio/boost.hpp>
@@ -48,7 +47,6 @@ struct buffer_sequence_adapter
         using difference_type   = std::ptrdiff_t;
         using reference         = value_type;
         using pointer           = void;
-
 
         constexpr iterator_type() noexcept = default;
         iterator_type(inner_iterator current) : it_(current) {}
@@ -170,6 +168,8 @@ struct const_buffer_body
     boost::optional<std::uint64_t>
     size(value_type const& v)
     {
+        fprintf(stderr, "Wuuut 1 %ld %d\n", boost::capy::buffer_size(v.buffers), v.eof);
+
         if (v.eof)
             return boost::capy::buffer_size(v.buffers);
         else
@@ -192,12 +192,12 @@ struct const_buffer_body
 
         using const_buffers_type = buffer_sequence_adapter<boost::capy::const_buffer, boost::asio::const_buffer>;
 
-
         boost::optional<std::pair<const_buffers_type, bool>>
             get(boost::system::error_code& ec)
         {
             // Empty + eof means we've fully drained the producer;
             // return none to terminate the serializer loop.
+            fprintf(stderr, "Wuuut %ld %d\n", boost::capy::buffer_size(v_.buffers), v_.eof);
             if ((boost::capy::buffer_size(v_.buffers) == 0 && v_.eof) || ec)
                 return boost::none;
             else
@@ -388,15 +388,32 @@ struct client_connection
   // tie its lifetime to a single exchange.
   struct stream
   {
+    capy::io_task<> read_header()
+    {
+        if (!parser_)
+            parser_ = std::make_unique<response_parser>();
+
+        return http::read_header(
+            capy::any_read_stream(&cc_->next_layer), 
+            capy::vector_dynamic_buffer(&cc_->buffer), 
+            *parser_);
+    }
+  
     template<capy::MutableBufferSequence MB>
     capy::io_task<std::size_t> read_some(MB mb)
     {
-        mb_ = capy::mutable_buffer_array<8u>(std::move(mb));
-        return read_some(mb_.to_span());
+        if (!parser_)
+          parser_ = std::make_unique<response_parser>();
+
+        mb_.assign(capy::begin(mb), capy::end(mb));
+        return read_some(std::span(mb_));
     }
 
     capy::io_task<std::size_t> read_some(std::span<capy::mutable_buffer> mb)
     {
+        if (!parser_)
+            parser_ = std::make_unique<response_parser>();
+
         return http::read_some(
             capy::any_read_stream(&cc_->next_layer), 
             capy::vector_dynamic_buffer(&cc_->buffer), 
@@ -407,12 +424,15 @@ struct client_connection
     template<capy::MutableBufferSequence MB>
     capy::io_task<std::size_t> read(MB mb)
     {
-        mb_ = capy::mutable_buffer_array<8u>(std::move(mb));
-        return read(mb_.to_span());
+        mb_.assign(capy::begin(mb), capy::end(mb));
+        return read(std::span(mb_));
     }
 
     capy::io_task<std::size_t> read(std::span<capy::mutable_buffer> mb)
     {
+        if (!parser_)
+            parser_ = std::make_unique<response_parser>();
+            
         return http::read_some(
             capy::any_read_stream(&cc_->next_layer), 
             capy::vector_dynamic_buffer(&cc_->buffer), 
@@ -423,8 +443,8 @@ struct client_connection
     template<capy::ConstBufferSequence CB>
     capy::io_task<std::size_t> write_some(CB cb)
     {
-        cb_ = capy::const_buffer_array<8u>(std::move(cb));
-        return write_some(cb_.to_span());
+        cb_.assign(capy::begin(cb), capy::end(cb));
+        return write_some(std::span(cb_));
     }
     
     capy::io_task<std::size_t> write_some(std::span<capy::const_buffer> cb)
@@ -438,8 +458,8 @@ struct client_connection
     template<capy::ConstBufferSequence CB>
     capy::io_task<std::size_t> write(CB cb)
     {
-        cb_ = capy::const_buffer_array<8u>(std::move(cb));
-        return write(cb_.to_span());
+        cb_.assign(std::begin(cb), std::end(cb));
+        return write(std::span(cb_));
     }
     
     capy::io_task<std::size_t> write(std::span<capy::const_buffer> cb)
@@ -492,8 +512,8 @@ struct client_connection
     // Storage that backs the spans handed to read_some/write_some
     // when the caller passes a typed buffer sequence — keeps the
     // adapter span alive for the duration of the io_task.
-    capy::const_buffer_array<8u> cb_;
-    capy::mutable_buffer_array<8u> mb_;
+    std::vector<capy::const_buffer> cb_;
+    std::vector<capy::mutable_buffer> mb_;
   };
 
 
@@ -537,8 +557,8 @@ struct server_connection
     template<capy::MutableBufferSequence MB>
     capy::io_task<std::size_t> read_some(MB mb)
     {
-        mb_ = capy::mutable_buffer_array<8u>(std::move(mb));
-        return read_some(mb_.to_span());
+        mb_.assign(capy::begin(mb), capy::end(mb));
+        return read_some(std::span(mb_));
     }
 
     capy::io_task<std::size_t> read_some(std::span<capy::mutable_buffer> mb)
@@ -553,8 +573,8 @@ struct server_connection
     template<capy::MutableBufferSequence MB>
     capy::io_task<std::size_t> read(MB mb)
     {
-        mb_ = capy::mutable_buffer_array<8u>(std::move(mb));
-        return read(mb_.to_span());
+        mb_.assign(capy::begin(mb), capy::end(mb));
+        return read(std::span(mb_));
     }
 
     capy::io_task<std::size_t> read(std::span<capy::mutable_buffer> mb)
@@ -585,7 +605,7 @@ struct server_connection
   private:
     server_connection * cc_ = nullptr;
     std::unique_ptr<request_parser> parser_;
-    capy::mutable_buffer_array<8u> mb_;
+    std::vector<capy::mutable_buffer> mb_;
   };
 
   // Write half: handed back from `respond()` once the response
@@ -595,8 +615,8 @@ struct server_connection
     template<capy::ConstBufferSequence CB>
     capy::io_task<std::size_t> write_some(CB cb)
     {
-        cb_ = capy::const_buffer_array<8u>(std::move(cb));
-        return write_some(cb_.to_span());
+        cb_.assign(capy::begin(cb), capy::end(cb));
+        return write_some(std::span(cb_));
     }
     
     capy::io_task<std::size_t> write_some(std::span<capy::const_buffer> cb)
@@ -610,8 +630,8 @@ struct server_connection
     template<capy::ConstBufferSequence CB>
     capy::io_task<std::size_t> write(CB cb)
     {
-        cb_ = capy::const_buffer_array<8u>(std::move(cb));
-        return write(cb_.to_span());
+        cb_.assign(capy::begin(cb), capy::end(cb));
+        return write(std::span(cb_));
     }
     
     capy::io_task<std::size_t> write(std::span<capy::const_buffer> cb)
@@ -655,8 +675,7 @@ struct server_connection
   private:
     server_connection * cc_ = nullptr;
     std::unique_ptr<response_serializer> serializer_;
-    
-    capy::const_buffer_array<8u> cb_;
+    std::vector<capy::const_buffer> cb_;
   };
 
     template<typename ...>auto foo();

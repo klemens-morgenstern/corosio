@@ -7,7 +7,7 @@
 // Official repository: https://github.com/cppalliance/corosio
 //
 
-#include "beast_core.hpp"
+#include "beast.hpp"
 #include "boost/capy/asio/buffers.hpp"
 #include <boost/capy/buffers.hpp>
 #include <boost/capy/buffers/circular_dynamic_buffer.hpp>
@@ -70,7 +70,7 @@ capy::io_task<> read_header(
 template<typename Parser>
 capy::io_task<std::size_t> read_some_impl(
     capy::any_read_stream stream,
-    capy::vector_dynamic_buffer & buffer,
+    capy::vector_dynamic_buffer buffer,
     Parser &parser,
     std::span<capy::mutable_buffer> body)
 {
@@ -113,13 +113,13 @@ capy::io_task<std::size_t> read_some_impl(
 
 capy::io_task<std::size_t> read_some(
     capy::any_read_stream stream,
-    capy::vector_dynamic_buffer & buffer,
+    capy::vector_dynamic_buffer buffer,
     response_parser &parser,
     std::span<capy::mutable_buffer> body)
 {
     return read_some_impl(
             std::move(stream),
-            buffer, parser,
+            std::move(buffer), parser,
             body
             );
 }
@@ -127,13 +127,13 @@ capy::io_task<std::size_t> read_some(
 
 capy::io_task<std::size_t> read_some(
     capy::any_read_stream stream,
-    capy::vector_dynamic_buffer & buffer,
+    capy::vector_dynamic_buffer buffer,
     request_parser &parser,
     std::span<capy::mutable_buffer> body)
 {
     return read_some_impl(
             std::move(stream),
-            buffer, parser,
+            std::move(buffer), parser,
             body
             );
 }
@@ -234,16 +234,18 @@ capy::io_task<> write_header_impl(
       ec, 
       [&](boost::system::error_code &, auto cb) 
       {
+        
         // max size is 8
         auto b = boost::asio::buffer_sequence_begin(cb), 
              e = boost::asio::buffer_sequence_end(cb);
         assert(std::distance(b, e) < 8);
+
         const auto it = std::transform(
                 b, e, buffer.begin(),
                 [&](boost::asio::const_buffer cb) -> boost::capy::const_buffer
                 {
                     return {cb.data(), cb.size()};
-                        });
+                });
 
         spn = {buffer.begin(), it};
       }
@@ -251,7 +253,6 @@ capy::io_task<> write_header_impl(
 
   if (spn.empty())
     co_return {ec};
-
   co_return get<0>(co_await boost::capy::write(stream, spn));
 }
 
@@ -288,11 +289,11 @@ capy::io_task<std::size_t> write_some_impl(
 
   char body_buffer[65535] = {};
   boost::capy::const_buffer cb{&body_buffer, sizeof(body_buffer)};
-
   
   serializer.get().body().buffers = body;
   serializer.get().body().eof = eof;
-  
+
+  fprintf(stderr, "hello %d %ld\n", serializer.is_done(), body.size());
   
   boost::system::error_code sec;
   serializer.next(
@@ -300,8 +301,8 @@ capy::io_task<std::size_t> write_some_impl(
       [&](boost::system::error_code &, auto cb) 
       {
         // max size is 8
-        auto b = boost::asio::buffer_sequence_begin(cb), 
-             e = boost::asio::buffer_sequence_end(cb);
+        auto b = boost::asio::buffer_sequence_begin(cb);
+        auto e = boost::asio::buffer_sequence_end(cb);
         assert(std::distance(b, e) < 8);
         const auto it = std::transform(
                 b, e, buffer.begin(),

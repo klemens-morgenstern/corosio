@@ -11,11 +11,20 @@ project
     : requirements
       <library>/boost/corosio//boost_corosio
       <library>/boost/beast//boost_beast
+      <library>/boost/asio//boost_asio
+      <library>/boost/url//boost_url
       <include>.
     ;
 
 lib beast_core : beast_core.cpp ;
 
-exe http_client :
-    [ glob *.cpp ]
+exe http_client : http_client.cpp beast_core ;
+
+exe http_client_sync : http_client_sync.cpp beast_core ;
+
+exe http_client_sync_ssl
+    : http_client_sync_ssl.cpp beast_core
+      /boost/corosio//boost_corosio_wolfssl
     ;
+
+exe http_server_sync : http_server_sync.cpp beast_core ;

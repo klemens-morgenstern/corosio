@@ -1,0 +1,18 @@
+#
+# Copyright (c) 2026 Klemens Morgenstern
+#
+# Distributed under the Boost Software License, Version 1.0. (See accompanying
+# file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+#
+# Official repository: https://github.com/cppalliance/corosio
+#
+
+project
+    : requirements
+      <library>/boost/corosio//boost_corosio
+      <library>/boost/json//boost_json
+      <include>.
+    ;
+
+exe json_rpc_server : server.cpp ;
+exe json_rpc_client : client.cpp ;
